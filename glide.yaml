@@ -1,0 +1,14 @@
+package: github.com/kadaan/acurite_exporter
+import:
+- package: github.com/prometheus/common
+  version: 4724e9255275ce38f7179b2478abeae4e28c904f
+  subpackages:
+    - log
+    - version
+- package: github.com/prometheus/client_golang
+  version: ^0.9.0
+  subpackages:
+  - prometheus
+  - prometheus/promhttp
+- package: gopkg.in/alecthomas/kingpin.v2
+  version: ^2.2.6
