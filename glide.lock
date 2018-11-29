@@ -1,5 +1,5 @@
-hash: 0b0bc510cbef23d014277210eca5af4dd20fff5db6bd34730966e27d38cdf048
-updated: 2018-11-26T22:11:08.649859-08:00
+hash: 913f287420afe3950366fdd2dd7a545bfdc8faf58f2fe3ddc0230d1804667947
+updated: 2018-11-29T01:53:29.965338-08:00
 imports:
 - name: github.com/alecthomas/template
   version: a0175ee3bccc567396460bf5acd36800cb10c49c
@@ -17,6 +17,8 @@ imports:
   - proto
 - name: github.com/konsorten/go-windows-terminal-sequences
   version: 5c8c8bd35d3832f5d134ae1e1e375b69a4d25242
+- name: github.com/markphelps/optional
+  version: ab661366466cd41f6a30e75aec3e2404cdb9def4
 - name: github.com/matttproud/golang_protobuf_extensions
   version: c12348ce28de40eed0136aa2b644d0ee0650e56c
   subpackages:
