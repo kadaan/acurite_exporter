@@ -174,7 +174,7 @@ function run() {
   fi
 
   verbose "Building binaries..."
-  $GOX -os="${XC_OS}" -arch="${XC_ARCH}" -osarch="!darwin/arm !darwin/arm64" -ldflags "-X github.com/prometheus/common/version.Version=$VERSION -X github.com/prometheus/common/version.Revision=$revision -X github.com/prometheus/common/version.Branch=$branch -X github.com/prometheus/common/version.BuildUser=$USER@$host -X github.com/prometheus/common/version.BuildDate=$buildDate" -output="dist/{{.Dir}}_{{.OS}}_{{.Arch}}"  || fatal "gox failed: $?"
+  $GOX -os="${XC_OS}" -arch="${XC_ARCH}" -osarch="!darwin/arm !darwin/arm64" -ldflags "-X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.Version=$VERSION -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.Revision=$revision -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.Branch=$branch -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.BuildUser=$USER@$host -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.BuildDate=$buildDate" -output="dist/{{.Dir}}_{{.OS}}_{{.Arch}}" || fatal "gox failed: $?"
 
   if [ -n "$TRAVIS" ]; then
     verbose "Creating archives..."
