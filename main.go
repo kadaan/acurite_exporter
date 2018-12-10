@@ -55,7 +55,7 @@ var (
 		Replacement: "$1",
 	}
 
-	relabelTarget = regexp.MustCompile(`^(?:(?:[a-zA-Z_]|\$(?:\{\w+\}|\w+))+\w*)+$`)
+	relabelTarget = regexp.MustCompile(`^(?:(?:[a-zA-Z_]|\$(?:{\w+}|\w+))+\w*)+$`)
 
 	acuriteSampleMappings = []acuriteSampleMapping{
 		{"sensorbattery", "battery_low", "1 if the sensor battery is low.", float, prometheus.GaugeValue,
@@ -397,13 +397,8 @@ func (c acuriteCollector) Collect(ch chan<- prometheus.Metric) {
 
 		labels := relabel(sample.Labels, c.config.RelabelConfigs...)
 		if labels != nil {
-			ch <- prometheus.NewMetricWithTimestamp(sample.Timestamp,
-				prometheus.MustNewConstMetric(
-					prometheus.NewDesc(sample.Name, sample.Help, []string{}, labels),
-					sample.Type,
-					sample.Value,
-				),
-			)
+			desc := prometheus.NewDesc(sample.Name, sample.Help, []string{}, labels)
+			ch <- prometheus.MustNewConstMetric(desc, sample.Type, sample.Value)
 		}
 	}
 }
@@ -558,7 +553,7 @@ func main() {
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html>
+		_, _ = w.Write([]byte(`<html>
       <head><title>Acurite Exporter</title></head>
       <body>
       <h1>Acurite Exporter</h1>
