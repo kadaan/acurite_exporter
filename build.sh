@@ -38,7 +38,7 @@ function trap_add() {
 declare -f -t trap_add
 
 function get_platform() {
-  unameOut="$(uname -s)"
+  local unameOut="$(uname -s)"
   case "${unameOut}" in
     Linux*)
       echo "linux"
@@ -54,50 +54,69 @@ function get_platform() {
 }
 
 PLATFORM=$(get_platform)
-GLIDE=$BINARY_DIR/glide
+GLIDE=${BINARY_DIR}/glide
 GLIDE_URL="https://github.com/Masterminds/glide/releases/download/v0.13.1/glide-v0.13.1-$PLATFORM-amd64.tar.gz"
 GOX="gox"
-GOMETALINTER=$BINARY_DIR/gometalinter
+GOMETALINTER=${BINARY_DIR}/gometalinter
 GOMETALINTER_URL="https://github.com/alecthomas/gometalinter/releases/download/v2.0.4/gometalinter-2.0.4-$PLATFORM-amd64.tar.gz"
+UPX="upx"
 
 function download_glide() {
-  if [ ! -f "$GLIDE" ]; then
+  if [[ ! -f "$GLIDE" ]]; then
     verbose "   --> $GLIDE"
     local tmpdir=`mktemp -d`
     trap_add "rm -rf $tmpdir" EXIT
-    pushd $tmpdir
-    curl -L -s -O $GLIDE_URL || fatal "failed to download 'GLIDE_URL': $?"
+    pushd ${tmpdir}
+    curl -L -s -O ${GLIDE_URL} || fatal "failed to download 'GLIDE_URL': $?"
     for i in *.tar.gz; do
-      [ "$i" = "*.tar.gz" ] && continue
-      tar xzf "$i" -C $tmpdir --strip-components 1 && rm -r "$i"
+      [[ "$i" = "*.tar.gz" ]] && continue
+      tar xzf "$i" -C ${tmpdir} --strip-components 1 && rm -r "$i"
     done
     popd
-    mkdir -p $BINARY_DIR
-    cp $tmpdir/* $BINARY_DIR/
+    mkdir -p ${BINARY_DIR}
+    cp ${tmpdir}/* ${BINARY_DIR}/
   fi
 }
 
 function download_gometalinter() {
-  if [ ! -f "$GOMETALINTER" ]; then
+  if [[ ! -f "$GOMETALINTER" ]]; then
     verbose "   --> $GOMETALINTER"
     local tmpdir=`mktemp -d`
     trap_add "rm -rf $tmpdir" EXIT
-    pushd $tmpdir
-    curl -L -s -O $GOMETALINTER_URL || fatal "failed to download '$GOMETALINTER_URL': $?"
+    pushd ${tmpdir}
+    curl -L -s -O ${GOMETALINTER_URL} || fatal "failed to download '$GOMETALINTER_URL': $?"
     for i in *.tar.gz; do
-      [ "$i" = "*.tar.gz" ] && continue
-      tar xzf "$i" -C $tmpdir --strip-components 1 && rm -r "$i"
+      [[ "$i" = "*.tar.gz" ]] && continue
+      tar xzf "$i" -C ${tmpdir} --strip-components 1 && rm -r "$i"
     done
     popd
-    mkdir -p $BINARY_DIR
-    cp $tmpdir/* $BINARY_DIR/
+    mkdir -p ${BINARY_DIR}
+    cp ${tmpdir}/* ${BINARY_DIR}/
   fi
 }
 
 function download_gox() {
-  if [ ! -x "$(command -v $GOX)" ]; then
-    echo "   --> $GOX"
+  if [[ ! -x "$(command -v $GOX)" ]]; then
+    verbose "   --> $GOX"
     go get github.com/mitchellh/gox || fatal "go get 'github.com/mitchellh/gox' failed: $?"
+  fi
+}
+
+function download_goveralls() {
+  if [[ -n "$TRAVIS" ]]; then
+    if [[ ! -x "$(command -v goveralls)" ]]; then
+      echo "   --> goveralls"
+      go get github.com/mattn/goveralls || fatal "go get 'github.com/mattn/goveralls' failed: $?"
+    fi
+  fi
+}
+
+function download_upx() {
+  if [[ ! -x "$(command -v $UPX)" ]]; then
+    verbose "   --> $UPX "
+    local upx_url="https://github.com/kadaan/upx/releases/download/20181231/upx_$PLATFORM"
+    curl -o "$BINARY_DIR/upx" -sLO ${upx_url} || fatal "failed to download upx: $?"
+    chmod +x "$BINARY_DIR/upx"
   fi
 }
 
@@ -105,17 +124,56 @@ function download_binaries() {
   download_glide || fatal "failed to download 'glide': $?"
   download_gox || fatal "failed to download 'gox': $?"
   download_gometalinter || fatal "failed to download 'gometalinter': $?"
-  export PATH=$PATH:$BINARY_DIR
+  download_goveralls || fatal "failed to download 'goveralls': $?"
+  download_upx || fatal "failed to download 'upx': $?"
+  export PATH=$PATH:${BINARY_DIR}
+}
+
+function usage() {
+  echo "Usage: build.sh [OPTIONS ...]"
+  echo "Builds the binary for your platform, or all supported platforms when '--build_all' is specified."
+  echo ""
+  echo "Options:"
+  echo "    --build_all:   build binaries for all supported platforms"
+  echo "    --clear_cache: clear the caches before running the build"
+  echo "    --help:        display this help"
+  echo ""
+}
+
+function parse_args() {
+  for var in "${@}"; do
+    case "$var" in
+      --help)
+        usage
+        exit 0
+      ;;
+      --build_all)
+        build_all=true
+      ;;
+      --clear_cache)
+        if [[ -f ${GLIDE} ]]; then
+          verbose "Clearing glide cache..."
+          ${GLIDE} cc || fatal "failed to clear glide cache: $?"
+        fi
+        verbose "Deleting $BINARY_DIR ..."
+        rm -rf ${BINARY_DIR} || fatal "failed to delete $BINARY_DIR: $?"
+      ;;
+    esac
+  done
 }
 
 function run() {
+  local build_all=false
+  parse_args "$@"
+
   local revision=`git rev-parse HEAD`
   local branch=`git rev-parse --abbrev-ref HEAD`
   local host=`hostname`
   local buildDate=`date -u +"%Y-%m-%dT%H:%M:%SZ"`
-  go version | grep -q 'go version go1.11.2 ' || fatal "go version is not 1.11.2"
+  local go_version="$(cat ${BUILD_DIR}/.go-version)"
+  go version | grep -q "go version go${go_version} " || fatal "go version is not ${go_version}"
 
-  if [ -z "$TRAVIS" ]; then
+  if [[ -z "$TRAVIS" ]]; then
     verbose "Cleanup dist..."
     rm -rf dist/*
   fi
@@ -124,7 +182,7 @@ function run() {
   download_binaries
 
   verbose "Getting dependencies..."
-  $GLIDE install -v || fatal "glide install failed: $?"
+  ${GLIDE} install -v || fatal "glide install failed: $?"
 
   local gofiles=$(find . -path ./vendor -prune -o -print | grep '\.go$')
 
@@ -139,61 +197,62 @@ function run() {
     done <<< "$gofiles"
   fi
 
-  if [ -n "$TRAVIS" ] && [ -n "$(git status --porcelain)" ]; then
+  if [[ -n "$TRAVIS" && -n "$(git status --porcelain)" ]]; then
     fatal "Source not formatted"
   fi
 
   verbose "Linting source..."
-  $GOMETALINTER --disable-all --enable=vet --enable=gocyclo --cyclo-over=15 --enable=golint --min-confidence=.85 --enable=ineffassign --skip=Godeps --skip=vendor --skip=third_party --skip=testdata --vendor ./... || fatal "gometalinter failed: $?"
+  ${GOMETALINTER} --disable-all --enable=vet --enable=gocyclo --cyclo-over=15 --enable=golint --min-confidence=.85 --enable=ineffassign --skip=Godeps --skip=vendor --skip=third_party --skip=testdata --vendor ./... || fatal "gometalinter failed: $?"
 
   verbose "Checking licenses..."
-  licRes=$(
+  local licRes=$(
   for file in $(find . -type f -iname '*.go' ! -path './vendor/*'); do
     head -n3 "${file}" | grep -Eq "(Copyright|generated|GENERATED)" || error "  Missing license in: ${file}"
   done;)
-  if [ -n "${licRes}" ]; then
+  if [[ -n "${licRes}" ]]; then
   	fatal "license header checking failed:\n${licRes}"
   fi
 
   verbose "Running tests..."
-  if [ -n "$TRAVIS" ]; then
-    if [ ! -x "$(command -v goveralls)" ]; then
-      echo "Getting goveralls..."
-      go get github.com/mattn/goveralls || fatal "go get 'github.com/mattn/goveralls' failed: $?"
-    fi
+  if [[ -n "$TRAVIS" ]]; then
     goveralls -v -service=travis-ci -ignore=main.go,testutil/server.go,testutil/golden.go || fatal "goveralls: $?"
   else
     go test -v ./... || fatal "$gopackage tests failed: $?"
   fi
 
-  XC_ARCH=${XC_ARCH:-"386 amd64 arm arm64"}
-  XC_OS=${XC_OS:-"solaris darwin freebsd linux windows"}
-  if [ -z "$TRAVIS" ]; then
+  XC_ARCH=${XC_ARCH:-"386 amd64"}
+  XC_OS=${XC_OS:-"darwin linux windows"}
+  if [[ -z "$TRAVIS" && "$build_all" != "true" ]]; then
     XC_OS=$(go env GOOS)
     XC_ARCH=$(go env GOARCH)
   fi
 
   verbose "Building binaries..."
-  $GOX -os="${XC_OS}" -arch="${XC_ARCH}" -osarch="!darwin/arm !darwin/arm64" -ldflags "-X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.Version=$VERSION -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.Revision=$revision -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.Branch=$branch -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.BuildUser=$USER@$host -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.BuildDate=$buildDate" -output="dist/{{.Dir}}_{{.OS}}_{{.Arch}}" || fatal "gox failed: $?"
+  ${GOX} -os="${XC_OS}" -arch="${XC_ARCH}" -osarch="!darwin/arm !darwin/arm64" -ldflags "-s -w -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.Version=$VERSION -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.Revision=$revision -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.Branch=$branch -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.BuildUser=$USER@$host -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.BuildDate=$buildDate" -output="dist/{{.Dir}}_{{.OS}}_{{.Arch}}" || fatal "gox failed: $?"
 
-  if [ -n "$TRAVIS" ]; then
+  verbose "Compressing binaries..."
+  for f in dist/*; do
+    ${UPX} --best ${f} || fatal "failed to compress binary '$f': $?"
+  done
+
+  if [[ -n "$TRAVIS" ]]; then
     verbose "Creating archives..."
     cd dist
     set -x
     for f in *; do
-      filename=$(basename "$f")
-      extension="${filename##*.}"
-      filename="${filename%.*}"
+      local filename=$(basename "$f")
+      local extension="${filename##*.}"
+      local filename="${filename%.*}"
       if [[ "$filename" != "$extension" ]] && [[ -n "$extension" ]]; then
         extension=".$extension"
       else
         extension=""
       fi
-      archivename="$filename.tar.gz"
+      local archivename="$filename.tar.gz"
       verbose "   --> $archivename"
-      genericname="acurite_exporter$extension"
+      local genericname="smartthings_exporter$extension"
       mv -f "$f" "$genericname"
-      tar -czf $archivename "$genericname"
+      tar -czf ${archivename} "$genericname"
       rm -rf "$genericname"
     done
   fi

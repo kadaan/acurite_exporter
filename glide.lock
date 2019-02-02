@@ -1,5 +1,5 @@
-hash: 913f287420afe3950366fdd2dd7a545bfdc8faf58f2fe3ddc0230d1804667947
-updated: 2018-11-29T01:53:29.965338-08:00
+hash: a57904e564e41232e015daa5c0a314608c90309614025d739396f5543e47b44b
+updated: 2019-02-02T11:03:43.379547-08:00
 imports:
 - name: github.com/alecthomas/template
   version: a0175ee3bccc567396460bf5acd36800cb10c49c
@@ -18,13 +18,13 @@ imports:
 - name: github.com/konsorten/go-windows-terminal-sequences
   version: 5c8c8bd35d3832f5d134ae1e1e375b69a4d25242
 - name: github.com/markphelps/optional
-  version: ab661366466cd41f6a30e75aec3e2404cdb9def4
+  version: e0a8e47d128d0cbbdd59fa01866009db9b2cb09d
 - name: github.com/matttproud/golang_protobuf_extensions
   version: c12348ce28de40eed0136aa2b644d0ee0650e56c
   subpackages:
   - pbutil
 - name: github.com/prometheus/client_golang
-  version: abad2d1bd44235a26707c172eab6bca5bf2dbad3
+  version: 505eaef017263e299324067d40ca2c48f6a2cf50
   subpackages:
   - prometheus
   - prometheus/internal
@@ -62,4 +62,6 @@ imports:
   - windows/svc/eventlog
 - name: gopkg.in/alecthomas/kingpin.v2
   version: 947dcec5ba9c011838740e680966fd7087a71d0d
+- name: gopkg.in/yaml.v2
+  version: 51d6538a90f86fe93ac480b35f37b2be17fef232
 testImports: []
