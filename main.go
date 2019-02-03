@@ -41,12 +41,19 @@ const (
 )
 
 var (
-	listenAddress = kingpin.Flag("web.listen-address", "Address on which to expose metrics.").Default(":9519").String()
-	metricsPath   = kingpin.Flag("web.telemetry-path", "Path under which to expose Prometheus metrics.").Default("/metrics").String()
-	relabelConfig = kingpin.Flag("acurite.relabel-config", "Metric relabel configuration file name.").Default("").String()
-	sampleExpiry  = kingpin.Flag("acurite.sample-expiry", "How long a sample is valid for.").Default("15m").Duration()
+	listenAddress   = kingpin.Flag("web.listen-address", "Address on which to expose metrics.").Default(":9519").String()
+	metricsPath     = kingpin.Flag("web.telemetry-path", "Path under which to expose Prometheus metrics.").Default("/metrics").String()
+	relabelConfig   = kingpin.Flag("acurite.relabel-config", "Metric relabel configuration file name.").Default("").String()
+	calibrateConfig = kingpin.Flag("acurite.calibrate-config", "Metric calibration configuration file name.").Default("").String()
+	sampleExpiry    = kingpin.Flag("acurite.sample-expiry", "How long a sample is valid for.").Default("15m").Duration()
 
-	defaultConfig = acuriteConfig{}
+	defaultAcuriteRelabelConfig   = acuriteRelabelConfig{}
+	defaultAcuriteCalibrateConfig = acuriteCalibrateConfig{}
+
+	defaultCalibrateConfig = CalibrateConfig{
+		Separator: ";",
+		Regex:     MustNewRegexp("(.*)"),
+	}
 
 	defaultRelabelConfig = RelabelConfig{
 		Action:      RelabelReplace,
@@ -58,7 +65,7 @@ var (
 	relabelTarget = regexp.MustCompile(`^(?:(?:[a-zA-Z_]|\$(?:{\w+}|\w+))+\w*)+$`)
 
 	acuriteSampleMappings = []acuriteSampleMapping{
-		{"sensorbattery", "battery_low", "1 if the sensor battery is low.", float, prometheus.GaugeValue,
+		{"sensorbattery", "battery_low", "1 if the sensor battery is low.", float, prometheus.GaugeValue, emptyLabels,
 			func(hub string, sensorType string, sensor string, name string, value string) optional.Float64 {
 				switch value {
 				case "low":
@@ -70,9 +77,10 @@ var (
 					return optional.Float64{}
 				}
 			}},
-		{"tempf", "temperature_fahrenheit", "Temperature in fahrenheit as detected by the sensor.", float, prometheus.GaugeValue, mapFromFloat},
-		{"humidity", "humidity_percentage", "Humidity percentage as detected by the sensor.", integer, prometheus.GaugeValue, mapFromInteger},
-		{"dewptf", "dewpoint_fahrenheit", "Dew point in fahrenheit as detected by the sensor.", float, prometheus.GaugeValue, mapFromFloat},
+		{"tempf", "temperature_fahrenheit", "Temperature in fahrenheit as detected by the sensor.", float, prometheus.GaugeValue, emptyLabels, mapFromFloat},
+		{"ptempf", "temperature_fahrenheit", "Temperature in fahrenheit as detected by the sensor.", float, prometheus.GaugeValue, tempLabels, mapFromFloat},
+		{"humidity", "humidity_percentage", "Humidity percentage as detected by the sensor.", integer, prometheus.GaugeValue, emptyLabels, mapFromInteger},
+		{"dewptf", "dewpoint_fahrenheit", "Dew point in fahrenheit as detected by the sensor.", float, prometheus.GaugeValue, emptyLabels, mapFromFloat},
 	}
 
 	lastProcessed = prometheus.NewGauge(
@@ -95,8 +103,15 @@ var (
 	)
 )
 
-type acuriteConfig struct {
-	RelabelConfigs []*RelabelConfig `yaml:"relabel_configs,omitempty"`
+type acuriteRelabelConfig struct {
+	Configs []*RelabelConfig `yaml:"relabel_configs,omitempty"`
+
+	// original is the input from which the config was parsed.
+	original string
+}
+
+type acuriteCalibrateConfig struct {
+	Configs []*CalibrateConfig `yaml:"calibrate_configs,omitempty"`
 
 	// original is the input from which the config was parsed.
 	original string
@@ -116,6 +131,7 @@ type acuriteSampleMapping struct {
 	Help               string
 	ValueType          acuriteValueType
 	MetricType         prometheus.ValueType
+	LabelsFunction     func(hub string, sensorType string, sensor string, name string) map[string]string
 	ConversionFunction func(hub string, sensorType string, sensor string, name string, value string) optional.Float64
 }
 
@@ -135,11 +151,47 @@ type acuriteSample struct {
 	Timestamp time.Time
 }
 
+func (s *acuriteSample) String() string {
+	lpStrings := make([]string, 0, len(s.Labels))
+	for k, v := range s.Labels {
+		lpStrings = append(lpStrings, fmt.Sprintf("%s=%q", k, v))
+	}
+	return fmt.Sprintf("%s{%s}", s.Name, lpStrings)
+}
+
 type acuriteCollector struct {
-	samples map[acuriteSampleId]*acuriteSample
-	mu      *sync.Mutex
-	config  *acuriteConfig
-	ch      chan *acuriteSample
+	samples         map[acuriteSampleId]*acuriteSample
+	mu              *sync.Mutex
+	relabelConfig   *acuriteRelabelConfig
+	calibrateConfig *acuriteCalibrateConfig
+	ch              chan *acuriteSample
+}
+
+// CalibrateConfig is the configuration for calibrating acurite samples.
+type CalibrateConfig struct {
+	// A list of labels from which values are taken and concatenated
+	// with the configured separator in order.
+	SourceLabels model.LabelNames `yaml:"source_labels,flow,omitempty"`
+	// Separator is the string between concatenated values from the source labels.
+	Separator string `yaml:"separator,omitempty"`
+	// Regex against which the concatenation is matched.
+	Regex Regexp `yaml:"regex,omitempty"`
+	// Calibration is the value used to calibrate the sample.
+	Calibration float64 `yaml:"calibration,omitempty"`
+}
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (c *CalibrateConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	*c = defaultCalibrateConfig
+	type plain CalibrateConfig
+	if err := unmarshal((*plain)(c)); err != nil {
+		return err
+	}
+	if c.Regex.Regexp == nil {
+		c.Regex = MustNewRegexp("")
+	}
+
+	return nil
 }
 
 // RelabelAction is the action to be performed on relabeling.
@@ -183,8 +235,6 @@ type RelabelConfig struct {
 	Separator string `yaml:"separator,omitempty"`
 	// Regex against which the concatenation is matched.
 	Regex Regexp `yaml:"regex,omitempty"`
-	// Modulus to take of the hash of concatenated values from the source labels.
-	Modulus uint64 `yaml:"modulus,omitempty"`
 	// TargetLabel is the label to which the resulting string is written in a replacement.
 	// Regexp interpolation is allowed for the replace action.
 	TargetLabel string `yaml:"target_label,omitempty"`
@@ -299,6 +349,17 @@ func mapFromFloat(_ string, _ string, _ string, _ string, value string) optional
 	return optional.NewFloat64(parsedValue)
 }
 
+func emptyLabels(_ string, _ string, _ string, _ string) map[string]string {
+	return map[string]string{}
+}
+
+func tempLabels(_ string, sensorType string, _ string, name string) map[string]string {
+	if sensorType == "ProOut" && name == "ptempf" {
+		return map[string]string{"probe": "wired"}
+	}
+	return map[string]string{}
+}
+
 func (c *acuriteCollector) processSample(sample string, values url.Values) {
 	log.Debugf("Incoming sample: %s", sample)
 	hub := values.Get("id")
@@ -330,11 +391,16 @@ func (c *acuriteCollector) processSample(sample string, values url.Values) {
 							Sensor: sensor,
 							Source: acuriteSampleMapping.Source,
 						}
+						sampleLabels := acuriteSampleMapping.LabelsFunction(hub, sensorType, sensor, acuriteSampleMapping.Source)
+						for k, v := range labels {
+							sampleLabels[k] = v
+						}
+						sampleLabels["__source"] = acuriteSampleMapping.Source
 						sample := acuriteSample{
 							Id:        sampleId,
 							Name:      fmt.Sprintf("acurite_sensor_%s", acuriteSampleMapping.Name),
 							Value:     f,
-							Labels:    labels,
+							Labels:    sampleLabels,
 							Type:      acuriteSampleMapping.MetricType,
 							Help:      acuriteSampleMapping.Help,
 							Timestamp: timestamp,
@@ -395,10 +461,12 @@ func (c acuriteCollector) Collect(ch chan<- prometheus.Metric) {
 			continue
 		}
 
-		labels := relabel(sample.Labels, c.config.RelabelConfigs...)
+		labels := relabel(sample.Labels, c.relabelConfig.Configs...)
 		if labels != nil {
+			value := calibrate(sample, labels, sample.Value, c.calibrateConfig.Configs...)
+			labels = removeHiddenLabels(labels)
 			desc := prometheus.NewDesc(sample.Name, sample.Help, []string{}, labels)
-			ch <- prometheus.MustNewConstMetric(desc, sample.Type, sample.Value)
+			ch <- prometheus.MustNewConstMetric(desc, sample.Type, value)
 		}
 	}
 }
@@ -411,9 +479,9 @@ func init() {
 	prometheus.MustRegister(version.NewCollector("acurite_exporter"))
 }
 
-func load(s string) (*acuriteConfig, error) {
-	cfg := &acuriteConfig{}
-	*cfg = defaultConfig
+func loadRelabel(s string) (*acuriteRelabelConfig, error) {
+	cfg := &acuriteRelabelConfig{}
+	*cfg = defaultAcuriteRelabelConfig
 
 	err := yaml.UnmarshalStrict([]byte(s), cfg)
 	if err != nil {
@@ -423,16 +491,74 @@ func load(s string) (*acuriteConfig, error) {
 	return cfg, nil
 }
 
-func loadFile(filename string) (*acuriteConfig, error) {
+func loadRelabelFile(filename string) (*acuriteRelabelConfig, error) {
 	content, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := load(string(content))
+	cfg, err := loadRelabel(string(content))
 	if err != nil {
 		return nil, fmt.Errorf("parsing YAML file %s: %v", filename, err)
 	}
 	return cfg, nil
+}
+func loadCalibrate(s string) (*acuriteCalibrateConfig, error) {
+	cfg := &acuriteCalibrateConfig{}
+	*cfg = defaultAcuriteCalibrateConfig
+
+	err := yaml.UnmarshalStrict([]byte(s), cfg)
+	if err != nil {
+		return nil, err
+	}
+	cfg.original = s
+	return cfg, nil
+}
+
+func loadCalibrateFile(filename string) (*acuriteCalibrateConfig, error) {
+	content, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := loadCalibrate(string(content))
+	if err != nil {
+		return nil, fmt.Errorf("parsing YAML file %s: %v", filename, err)
+	}
+	return cfg, nil
+}
+
+func calibrate(sample *acuriteSample, labels map[string]string, value float64, cfgs ...*CalibrateConfig) float64 {
+	for _, cfg := range cfgs {
+		calibratedValue := calibrateFromConfig(labels, value, cfg)
+		if calibratedValue.Present() {
+			v, _ := calibratedValue.Get()
+			log.Debugf("Calibrated %s from %v to %v", sample, value, v)
+			return v
+		}
+	}
+	return value
+}
+
+func calibrateFromConfig(labels map[string]string, value float64, cfg *CalibrateConfig) optional.Float64 {
+	values := make([]string, 0, len(cfg.SourceLabels))
+	for _, ln := range cfg.SourceLabels {
+		values = append(values, labels[string(ln)])
+	}
+	val := strings.Join(values, cfg.Separator)
+	if cfg.Regex.MatchString(val) {
+		return optional.NewFloat64(value + cfg.Calibration)
+	}
+
+	return optional.Float64{}
+}
+
+func removeHiddenLabels(labels map[string]string) map[string]string {
+	lb := make(map[string]string)
+	for name, value := range labels {
+		if !strings.HasPrefix(name, "__") {
+			lb[name] = value
+		}
+	}
+	return lb
 }
 
 func relabel(labels map[string]string, cfgs ...*RelabelConfig) map[string]string {
@@ -543,13 +669,22 @@ func main() {
 	c := newAcuriteCollector()
 	prometheus.MustRegister(c)
 
-	c.config = &acuriteConfig{}
+	c.relabelConfig = &acuriteRelabelConfig{}
 	if *relabelConfig != "" {
-		acuriteConfig, err := loadFile(*relabelConfig)
+		acuriteConfig, err := loadRelabelFile(*relabelConfig)
 		if err != nil {
 			log.Fatalf("Error loading metric relabel config: %s", err)
 		}
-		c.config = acuriteConfig
+		c.relabelConfig = acuriteConfig
+	}
+
+	c.calibrateConfig = &acuriteCalibrateConfig{}
+	if *calibrateConfig != "" {
+		acuriteConfig, err := loadCalibrateFile(*calibrateConfig)
+		if err != nil {
+			log.Fatalf("Error loading metric calibrate config: %s", err)
+		}
+		c.calibrateConfig = acuriteConfig
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

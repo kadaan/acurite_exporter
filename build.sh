@@ -53,13 +53,13 @@ function get_platform() {
   esac
 }
 
-PLATFORM=$(get_platform)
-GLIDE=${BINARY_DIR}/glide
+PLATFORM="$(get_platform)"
+GLIDE="${BINARY_DIR}/glide"
 GLIDE_URL="https://github.com/Masterminds/glide/releases/download/v0.13.1/glide-v0.13.1-$PLATFORM-amd64.tar.gz"
 GOX="gox"
-GOMETALINTER=${BINARY_DIR}/gometalinter
+GOMETALINTER="${BINARY_DIR}/gometalinter"
 GOMETALINTER_URL="https://github.com/alecthomas/gometalinter/releases/download/v2.0.4/gometalinter-2.0.4-$PLATFORM-amd64.tar.gz"
-UPX="upx"
+UPX="${BINARY_DIR}/upx"
 
 function download_glide() {
   if [[ ! -f "$GLIDE" ]]; then
@@ -228,7 +228,7 @@ function run() {
   fi
 
   verbose "Building binaries..."
-  ${GOX} -os="${XC_OS}" -arch="${XC_ARCH}" -osarch="!darwin/arm !darwin/arm64" -ldflags "-s -w -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.Version=$VERSION -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.Revision=$revision -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.Branch=$branch -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.BuildUser=$USER@$host -X github.com/kadaan/smartthings_exporter/vendor/github.com/prometheus/common/version.BuildDate=$buildDate" -output="dist/{{.Dir}}_{{.OS}}_{{.Arch}}" || fatal "gox failed: $?"
+  ${GOX} -os="${XC_OS}" -arch="${XC_ARCH}" -osarch="!darwin/arm !darwin/arm64" -ldflags "-s -w -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.Version=$VERSION -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.Revision=$revision -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.Branch=$branch -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.BuildUser=$USER@$host -X github.com/kadaan/acurite_exporter/vendor/github.com/prometheus/common/version.BuildDate=$buildDate" -output="dist/{{.Dir}}_{{.OS}}_{{.Arch}}" || fatal "gox failed: $?"
 
   verbose "Compressing binaries..."
   for f in dist/*; do
@@ -250,7 +250,7 @@ function run() {
       fi
       local archivename="$filename.tar.gz"
       verbose "   --> $archivename"
-      local genericname="smartthings_exporter$extension"
+      local genericname="acurite_exporter$extension"
       mv -f "$f" "$genericname"
       tar -czf ${archivename} "$genericname"
       rm -rf "$genericname"
