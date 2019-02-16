@@ -1,0 +1,79 @@
+metrics:
+  - source: sensorbattery
+    name: battery_low
+    help: "1 if the sensor battery is low."
+    type: integer
+    mapping:
+      - regex: low
+        replacement: 1
+      - regex: normal
+        replacement: 0
+  - source: tempf
+    name: temperature_fahrenheit
+    help: "Temperature in fahrenheit as detected by the sensor."
+    type: float
+  - source: ptempf
+    name: temperature_fahrenheit
+    help: "Temperature in fahrenheit as detected by the sensor."
+    type: float
+  - source: humidity
+    name: humidity_percentage
+    help: "Humidity percentage as detected by the sensor."
+    type: integer
+  - source: phumidity
+    name: humidity_percentage
+    help: "Humidity percentage as detected by the sensor."
+    type: integer
+  - source: windspeedmph
+    name: wind_speed_mph
+    help: "Wind speed in mph as detected by the sensor."
+    type: float
+  - source: winddir
+    name: wind_direction_degrees
+    help: "Wind direction in degrees as detected by the sensor."
+    type: integer
+  - source: windgustmph
+    name: wind_gust_speed_mph
+    help: "Wind gust speed in mph as detected by the sensor."
+    type: integer
+  - source: windgustdir
+    name: wind_gust_direction_degrees
+    help: "Wind gust direction in degrees as detected by the sensor."
+    type: integer
+  - source: dailyrainin
+    name: rain_inches
+    help: "Rainfall in inches as detected by the sensor."
+    type: float
+relabeling:
+  - source_labels: [sensor]
+    regex: 00010222
+    target_label: name
+    replacement: "Propagation Greenhouse"
+  - source_labels: [sensor]
+    regex: 00003457
+    target_label: name
+    replacement: "Weather Station"
+  - source_labels: [sensor]
+    regex: 00010876
+    target_label: name
+    replacement: "Warm Germination Chamber"
+  - source_labels: [sensor]
+    regex: 00009788
+    target_label: name
+    replacement: "Workshop"
+  - source_labels: [sensor]
+    regex: 00012250
+    target_label: name
+    replacement: "Walk-in Cooler"
+  - source_labels: [__source]
+    regex: ".+"
+    target_label: probe
+    replacement: "sensor"
+  - source_labels: [__source]
+    regex: "ptempf|phumidity"
+    target_label: probe
+    replacement: "wired"
+calibrations:
+  - source_labels: [sensor,__source]
+    regex: "00012250;ptempf"
+    calibration: -3
